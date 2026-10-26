@@ -1,0 +1,42 @@
+[package]
+name = "flashblocks"
+version = "0.1.1"
+edition = "2024"
+description = "Decode Base Flashblocks in real time: Chainlink price updates straight from the 200 ms pre-confirmation stream, with logs_bloom confirmation"
+license = "MIT"
+repository = "https://github.com/Dimanoshe/flashblocks-rs"
+keywords = ["base", "flashblocks", "chainlink", "optimism", "mev"]
+categories = ["cryptography::cryptocurrencies", "parsing"]
+readme = "README.md"
+
+[lib]
+name = "flashblocks"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "flashblocks-tail"
+path = "src/bin/tail.rs"
+required-features = ["cli"]
+
+[dependencies]
+brotli = { version = "7", default-features = false, features = ["std"] }
+serde_json = "1"
+tiny-keccak = { version = "2", features = ["keccak"] }
+memchr = "2"
+hex = "0.4"
+tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+num-bigint = { version = "0.4", optional = true }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py312", "num-bigint"], optional = true }
+
+[features]
+default = ["cli"]
+cli = []
+python = ["dep:pyo3", "dep:num-bigint"]
+
+[dev-dependencies]
+base64 = "0.22"
+
+[profile.release]
+lto = true
+codegen-units = 1
