@@ -16,5 +16,7 @@
 //!
 
 pub mod decode;
+pub mod listener;
 
 pub use decode::{FeedUpdate, Watch, parse};
+pub use listener::{Listener, Stats, Update};
