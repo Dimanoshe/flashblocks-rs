@@ -14,9 +14,22 @@
 //! Decoding a slice with a price update takes well under a millisecond; slices without any watched address are
 //! rejected by a byte search before the JSON is even parsed.
 //!
+//! ```no_run
+//! use flashblocks::{decode, Listener, Watch};
+//!
+//! let watch = Watch { aggregators: vec![/* 20-byte aggregator addresses */], ..Watch::default() };
+//! let listener = Listener::start("wss://mainnet.flashblocks.base.org/ws".into(), watch);
+//! while let Ok(update) = listener.receiver.lock().unwrap().recv() {
+//!     println!("{:?}", update.update);
+//! }
+//! # let _ = decode::parse;
+//! ```
 
 pub mod decode;
 pub mod listener;
+
+#[cfg(feature = "python")]
+mod python;
 
 pub use decode::{FeedUpdate, Watch, parse};
 pub use listener::{Listener, Stats, Update};
