@@ -13,6 +13,11 @@ readme = "README.md"
 name = "flashblocks"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "flashblocks-tail"
+path = "src/bin/tail.rs"
+required-features = ["cli"]
+
 [dependencies]
 brotli = { version = "7", default-features = false, features = ["std"] }
 serde_json = "1"
@@ -21,6 +26,10 @@ memchr = "2"
 hex = "0.4"
 tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[features]
+default = ["cli"]
+cli = []
 
 [dev-dependencies]
 base64 = "0.22"
