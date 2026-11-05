@@ -16,7 +16,7 @@ the block or polling an RPC. The stream is raw, though: brotli-compressed JSON w
 roughly 3.5 GB a day. This crate turns it into typed events:
 
 ```text
-{"block":53118600,"index":4,"aggregator":"0x05c84a58…","answer":"229655000000","confirmed":true,"tx":"0x…","latency_ms":0.41}
+{"block":53548000,"index":3,"aggregator":"0x71e021bc…","answer":"272994250969","confirmed":true,"tx":"0x…","latency_ms":0.59}
 ```
 
 * **Finds transmits.** Chainlink updates on Base arrive as `forward(aggregator, transmit(report))` through a forwarder,
@@ -33,7 +33,7 @@ roughly 3.5 GB a day. This crate turns it into typed events:
 
 ```bash
 cargo install flashblocks
-flashblocks-tail --feed 0x05c84a58fe042275b37db038baacd15f410c7bb0   # ETH/USD aggregator on Base
+flashblocks-tail --feed 0x71e021bc2e8a709b72ac7b6036e5b2bf30f263d0   # cbETH/USD aggregator on Base
 ```
 
 Base documents the public `mainnet.flashblocks.base.org` endpoint as intended for infrastructure use; for anything
@@ -72,7 +72,7 @@ pip install flashblocks
 import flashblocks
 
 listener = flashblocks.Listener("wss://mainnet.flashblocks.base.org/ws",
-                                aggregators=["0x05c84a58fe042275b37db038baacd15f410c7bb0"])
+                                aggregators=["0x71e021bc2e8a709b72ac7b6036e5b2bf30f263d0"])
 while True:
     got = listener.next(1000)            # (aggregator, answer, block, index, age_ms, tx_hash, confirmed) or None
     if got:
