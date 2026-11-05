@@ -5,6 +5,8 @@ Decode [Base Flashblocks](https://docs.base.org/chain/flashblocks) in real time 
 
 Rust library, command-line tool and Python module (`pip install flashblocks`).
 
+![flashblocks-tail decoding live Chainlink updates on Base](docs/demo.gif)
+
 ## Why
 
 Base builds every 2-second block out of ten 200 ms slices and streams them publicly
@@ -31,7 +33,7 @@ roughly 3.5 GB a day. This crate turns it into typed events:
 
 ```bash
 cargo install flashblocks
-flashblocks-tail --feed 0x05c84a58fe042275b37db038baacd15f410c7bb0   # cbETH/USD aggregator on Base
+flashblocks-tail --feed 0x05c84a58fe042275b37db038baacd15f410c7bb0   # ETH/USD aggregator on Base
 ```
 
 Base documents the public `mainnet.flashblocks.base.org` endpoint as intended for infrastructure use; for anything
