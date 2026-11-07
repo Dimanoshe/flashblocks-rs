@@ -25,6 +25,7 @@
 //! # let _ = decode::parse;
 //! ```
 
+pub mod block_listener;
 pub mod blocks;
 pub mod decode;
 pub mod listener;
@@ -32,5 +33,6 @@ pub mod listener;
 #[cfg(feature = "python")]
 mod python;
 
+pub use block_listener::BlockListener;
 pub use decode::{FeedUpdate, Watch, parse};
 pub use listener::{Listener, Stats, Update};

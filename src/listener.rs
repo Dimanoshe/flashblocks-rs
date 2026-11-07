@@ -25,6 +25,10 @@ pub struct Stats {
     pub messages: AtomicU64,
     pub reconnects: AtomicU64,
     pub last_error: Mutex<String>,
+    /// 200 ms blocks: blocks the subscription skipped and the listener read by number.
+    pub blocks_filled: AtomicU64,
+    /// 200 ms blocks: blocks read in full because their bloom may hold a watched update.
+    pub blocks_read: AtomicU64,
 }
 
 pub struct Listener {
@@ -34,7 +38,7 @@ pub struct Listener {
     pub receiver: Mutex<Receiver<Update>>,
 }
 
-const PING_SECONDS: u64 = 20;
+pub(crate) const PING_SECONDS: u64 = 20;
 
 impl Listener {
     pub fn start(url: String, watch: Watch) -> Self {
@@ -68,7 +72,7 @@ fn run(url: String, watch: Arc<Mutex<Watch>>, stats: Arc<Stats>, sender: Sender<
     }
 }
 
-fn connect(url: &str) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
+pub(crate) fn connect(url: &str) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
     let (ws, _) = tungstenite::connect(url).map_err(|e| format!("connect: {e}"))?;
     if let MaybeTlsStream::Rustls(stream) = ws.get_ref() {
         let _ = stream.get_ref().set_read_timeout(Some(Duration::from_secs(PING_SECONDS)));
