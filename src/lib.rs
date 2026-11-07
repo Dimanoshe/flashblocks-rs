@@ -1,28 +1,24 @@
-//! Decode [Base Flashblocks](https://docs.base.org/chain/flashblocks) in real time.
+//! Chainlink price updates on Base as they land.
 //!
-//! Base publishes a block in ten 200 ms slices ("flashblocks") on a public WebSocket
-//! (`wss://mainnet.flashblocks.base.org/ws`) before the block is sealed. Each message is a brotli-compressed JSON
-//! document with the raw signed transactions of the slice and the cumulative `logs_bloom` of the block so far.
+//! Since Denim (Nov 5, 2026) Base makes a complete canonical block every 200 ms and no longer streams Flashblocks.
+//! [`BlockListener`] subscribes to block headers over any WebSocket RPC (`eth_subscribe("newHeads")`), reads a block
+//! only when its `logsBloom` may hold an update of a watched aggregator, and reads blocks the subscription skipped by
+//! number. Each update is decoded from the transaction itself:
 //!
-//! This crate extracts **Chainlink price updates** from those slices as soon as they appear:
+//! * `forward(aggregator, transmit(report))` through a Chainlink forwarder, or a direct `transmit(report)`,
+//! * the new answer as an OCR2 aggregator computes it (median of the report's observations),
+//! * confirmed from the bloom (`AnswerUpdated(aggregator, answer)`), so no receipt round-trip is needed.
 //!
-//! * finds `forward(aggregator, transmit(report))` and direct `transmit(report)` calls to the aggregators you watch,
-//! * computes the new answer the way an OCR2 aggregator does (median of the report's observations),
-//! * confirms that the transmit succeeded from the slice's `logs_bloom` (`AnswerUpdated(aggregator, answer)`), so no
-//!   receipt round-trip is needed.
-//!
-//! Decoding a slice with a price update takes well under a millisecond; slices without any watched address are
-//! rejected by a byte search before the JSON is even parsed.
+//! [`Listener`] and [`parse`] still decode a Flashblocks stream for chains or nodes that serve one.
 //!
 //! ```no_run
-//! use flashblocks::{decode, Listener, Watch};
+//! use flashblocks::{BlockListener, Watch};
 //!
-//! let watch = Watch { aggregators: vec![/* 20-byte aggregator addresses */], ..Watch::default() };
-//! let listener = Listener::start("wss://mainnet.flashblocks.base.org/ws".into(), watch);
+//! let watch = Watch { aggregators: vec![/* 20-byte aggregator addresses */] };
+//! let listener = BlockListener::start("wss://base-rpc.publicnode.com".into(), watch);
 //! while let Ok(update) = listener.receiver.lock().unwrap().recv() {
 //!     println!("{:?}", update.update);
 //! }
-//! # let _ = decode::parse;
 //! ```
 
 pub mod block_listener;
