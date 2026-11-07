@@ -13,8 +13,8 @@ AERO_USD=0xfcddfb2294beba43987516371febb2e677eb403e
 say() { printf '\033[1;36m$ %s\033[0m\n' "$*"; sleep 1.2; }
 note() { printf '\033[2m# %s\033[0m\n' "$*"; sleep 1.5; }
 
-note "flashblocks: decode Base's public Flashblocks stream (brotli + RLP, 200 ms slices) in real time"
-note "one line per Chainlink price update, ~0.5 ms per slice, confirmed from the slice's logs_bloom"
+note "flashblocks 0.2: Chainlink price updates on Base from 200 ms blocks (Flashblocks were retired with Denim)"
+note "header bloom first, then only the block with the update; skipped headers read by number; confirmed from logs_bloom"
 sleep 0.5
 note "install: cargo install flashblocks"
 say "flashblocks-tail --feed \$BTC_USD --feed \$CBETH_USD --feed \$AERO_USD   # Chainlink aggregators on Base"
@@ -27,10 +27,10 @@ perl -e 'alarm 1500; exec @ARGV' -- flashblocks-tail --feed "$BTC_USD" --feed "$
       if [ "$n" -ge 2 ]; then pkill -P $$ flashblocks-tail 2>/dev/null; break; fi
     done
 sleep 1.5
-note "block / slice index / aggregator / new answer / confirmed from logs_bloom / decode latency in ms"
+note "block / tx index / aggregator / new answer / confirmed from logs_bloom / ms from header to line (incl. reading the block)"
 sleep 1.5
 say "cargo test"
 cargo test 2>&1 | grep -E "^test result|Running" | sed 's/^/    /'
 sleep 2
-note "github.com/Dimanoshe/flashblocks-rs — MIT, Rust crate + CLI + Python module"
+note "github.com/Dimanoshe/flashblocks-rs - MIT, Rust crate + CLI + Python module"
 sleep 2
