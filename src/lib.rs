@@ -25,6 +25,7 @@
 //! # let _ = decode::parse;
 //! ```
 
+pub mod blocks;
 pub mod decode;
 pub mod listener;
 
