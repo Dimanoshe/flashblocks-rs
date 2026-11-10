@@ -1,4 +1,5 @@
-//! Python bindings (`pip install flashblocks`): `parse()` and `Listener`. Decoding runs without the GIL.
+//! Python bindings (`pip install flashblocks`): `block_updates()`, `BlockListener` (200 ms blocks, Base since Denim),
+//! `parse()` and `Listener` (a Flashblocks stream). Decoding runs without the GIL.
 
 use std::time::Duration;
 
@@ -7,7 +8,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::decode::{self, Address, Watch};
-use crate::listener;
+use crate::{block_listener, blocks, listener};
 
 type PyUpdate = (String, BigInt, u64, u64, String, Option<bool>);
 
@@ -87,9 +88,88 @@ impl Listener {
     }
 }
 
+/// Feed updates in a full block (the JSON of `eth_getBlockByNumber(n, true)`'s result):
+/// `[(aggregator, answer, block, tx_index, tx_hash, confirmed)]`.
+#[pyfunction]
+#[pyo3(signature = (block_json, aggregators))]
+fn block_updates(py: Python<'_>, block_json: &str, aggregators: Vec<String>) -> PyResult<Vec<PyUpdate>> {
+    let watch = watch(aggregators)?;
+    let updates = py
+        .detach(|| {
+            let block: serde_json::Value = serde_json::from_str(block_json).map_err(|e| format!("json: {e}"))?;
+            blocks::block_updates(&block, &watch)
+        })
+        .map_err(PyValueError::new_err)?;
+    Ok(updates.into_iter().map(to_py).collect())
+}
+
+/// Background listener for 200 ms blocks over a WebSocket RPC (`newHeads`, skipped blocks read by number);
+/// `next(timeout_ms)` returns `(aggregator, answer, block, tx_index, age_ms, tx_hash, confirmed)` or `None`.
+#[pyclass]
+struct BlockListener {
+    inner: block_listener::BlockListener,
+}
+
+#[pymethods]
+impl BlockListener {
+    #[new]
+    #[pyo3(signature = (rpc_url, aggregators = Vec::new()))]
+    fn new(rpc_url: String, aggregators: Vec<String>) -> PyResult<Self> {
+        Ok(Self { inner: block_listener::BlockListener::start(rpc_url, watch(aggregators)?) })
+    }
+
+    fn set_aggregators(&self, aggregators: Vec<String>) -> PyResult<()> {
+        let parsed = aggregators.iter().map(|a| to_address(a)).collect::<PyResult<_>>()?;
+        self.inner.watch.lock().unwrap().aggregators = parsed;
+        Ok(())
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn next(&self, py: Python<'_>, timeout_ms: u64) -> Option<(String, BigInt, u64, u64, f64, String, Option<bool>)> {
+        let got = py.detach(|| self.inner.receiver.lock().unwrap().recv_timeout(Duration::from_millis(timeout_ms)).ok());
+        got.map(|u| {
+            let age_ms = u.received.elapsed().as_secs_f64() * 1000.0;
+            let (aggregator, answer, block, index, tx_hash, confirmed) = to_py(u.update);
+            (aggregator, answer, block, index, age_ms, tx_hash, confirmed)
+        })
+    }
+
+    #[getter]
+    fn connected(&self) -> bool {
+        self.inner.stats.connected.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[getter]
+    fn messages(&self) -> u64 {
+        self.inner.stats.messages.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[getter]
+    fn blocks_filled(&self) -> u64 {
+        self.inner.stats.blocks_filled.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[getter]
+    fn blocks_read(&self) -> u64 {
+        self.inner.stats.blocks_read.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[getter]
+    fn reconnects(&self) -> u64 {
+        self.inner.stats.reconnects.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[getter]
+    fn last_error(&self) -> String {
+        self.inner.stats.last_error.lock().unwrap().clone()
+    }
+}
+
 #[pymodule]
 fn flashblocks(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<BlockListener>()?;
     m.add_class::<Listener>()?;
+    m.add_function(wrap_pyfunction!(block_updates, m)?)?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     Ok(())
 }

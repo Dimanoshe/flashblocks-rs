@@ -1,16 +1,42 @@
-//! `flashblocks-tail`: print Chainlink feed updates from the Base Flashblocks stream as they appear.
+//! `flashblocks-tail`: print Chainlink feed updates on Base as they appear.
 //!
 //! ```text
-//! flashblocks-tail --feed 0x… [--feed 0x…] [--url wss://mainnet.flashblocks.base.org/ws]
+//! flashblocks-tail --feed 0x… [--feed 0x…] [--rpc wss://base-rpc.publicnode.com]
 //! ```
-//! Each update is one JSON line: block, slice index, aggregator, answer, confirmed (from logs_bloom), tx hash and
-//! the time from message arrival to the printed line in milliseconds.
+//! Since Denim (Nov 5, 2026) Base makes a full block every 200 ms and no longer streams Flashblocks: updates come from
+//! block headers (`newHeads`) and the blocks whose bloom may hold one, over any WebSocket RPC with subscriptions.
+//! `--url wss://…` still reads a Flashblocks stream (a node or proxy that serves one). Each update is one JSON line:
+//! block, transaction (or slice) index, aggregator, answer, confirmed (from the bloom), tx hash and the time from the
+//! header's arrival to the printed line in milliseconds.
 
+use std::sync::Mutex;
+use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use flashblocks::{Listener, Watch};
+use flashblocks::{BlockListener, Listener, Stats, Update, Watch};
 
-const DEFAULT_URL: &str = "wss://mainnet.flashblocks.base.org/ws";
+const DEFAULT_RPC: &str = "wss://base-rpc.publicnode.com";
+
+enum Source {
+    Blocks(BlockListener),
+    Slices(Listener),
+}
+
+impl Source {
+    fn receiver(&self) -> &Mutex<Receiver<Update>> {
+        match self {
+            Source::Blocks(l) => &l.receiver,
+            Source::Slices(l) => &l.receiver,
+        }
+    }
+
+    fn stats(&self) -> &Stats {
+        match self {
+            Source::Blocks(l) => &l.stats,
+            Source::Slices(l) => &l.stats,
+        }
+    }
+}
 
 fn parse_address(text: &str) -> Result<[u8; 20], String> {
     let bytes = hex::decode(text.strip_prefix("0x").unwrap_or(text)).map_err(|e| format!("{text}: {e}"))?;
@@ -36,12 +62,14 @@ fn answer_decimal(word: &[u8; 32]) -> String {
 }
 
 fn main() {
-    let mut url = DEFAULT_URL.to_string();
+    let mut rpc = DEFAULT_RPC.to_string();
+    let mut slices: Option<String> = None;
     let mut watch = Watch::default();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--url" => url = args.next().expect("--url needs a value"),
+            "--rpc" => rpc = args.next().expect("--rpc needs a value"),
+            "--url" => slices = Some(args.next().expect("--url needs a value")),
             "--feed" => match parse_address(&args.next().expect("--feed needs an address")) {
                 Ok(address) => watch.aggregators.push(address),
                 Err(e) => {
@@ -50,7 +78,7 @@ fn main() {
                 }
             },
             "-h" | "--help" => {
-                println!("flashblocks-tail --feed 0x<aggregator> [--feed …] [--url {DEFAULT_URL}]");
+                println!("flashblocks-tail --feed 0x<aggregator> [--feed …] [--rpc {DEFAULT_RPC}] [--url <flashblocks stream>]");
                 return;
             }
             other => {
@@ -63,9 +91,15 @@ fn main() {
         eprintln!("pass at least one --feed 0x<aggregator address>");
         std::process::exit(2);
     }
-    let listener = Listener::start(url, watch);
+    let source = match slices {
+        Some(url) => {
+            eprintln!("note: Base stopped streaming Flashblocks on Nov 5, 2026; --url needs a node or proxy that serves one");
+            Source::Slices(Listener::start(url, watch))
+        }
+        None => Source::Blocks(BlockListener::start(rpc, watch)),
+    };
     loop {
-        let got = listener.receiver.lock().unwrap().recv_timeout(Duration::from_secs(30));
+        let got = source.receiver().lock().unwrap().recv_timeout(Duration::from_secs(30));
         match got {
             Ok(u) => {
                 let f = u.update;
@@ -77,13 +111,13 @@ fn main() {
                 );
             }
             Err(_) => {
-                let stats = &listener.stats;
+                let stats = source.stats();
+                let load = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
                 eprintln!(
-                    "connected={} messages={} reconnects={} last_error={:?}",
+                    "connected={} messages={} blocks_filled={} blocks_read={} reconnects={} last_error={:?}",
                     stats.connected.load(std::sync::atomic::Ordering::Relaxed),
-                    stats.messages.load(std::sync::atomic::Ordering::Relaxed),
-                    stats.reconnects.load(std::sync::atomic::Ordering::Relaxed),
-                    stats.last_error.lock().unwrap()
+                    load(&stats.messages), load(&stats.blocks_filled), load(&stats.blocks_read),
+                    load(&stats.reconnects), stats.last_error.lock().unwrap()
                 );
             }
         }

@@ -4,8 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "flashblocks"
-version = "0.1.1"
-description = "Decode Base Flashblocks in real time: Chainlink price updates from the 200 ms pre-confirmation stream"
+version = "0.2.0"
+description = "Chainlink price updates on Base from 200 ms blocks, decoded from the transmit and confirmed from logs_bloom"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"

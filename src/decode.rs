@@ -29,7 +29,7 @@ pub struct FeedUpdate {
     pub answer: Answer,
     /// Block being built (`metadata.block_number`), 0 if absent.
     pub block: u64,
-    /// Slice index inside the block (`index`).
+    /// Slice index inside the block (`index`) for a flashblock; the transaction index for a 200 ms block.
     pub index: u64,
     /// Hash of the transmit transaction.
     pub tx_hash: [u8; 32],
@@ -196,7 +196,7 @@ fn hex_nibble(c: u8) -> Option<u8> {
     }
 }
 
-fn hex_decode(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn hex_decode(text: &str) -> Option<Vec<u8>> {
     let bytes = text.strip_prefix("0x").unwrap_or(text).as_bytes();
     if !bytes.len().is_multiple_of(2) {
         return None;

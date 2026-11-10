@@ -1,33 +1,31 @@
 # flashblocks
 
-Decode [Base Flashblocks](https://docs.base.org/chain/flashblocks) in real time and get **Chainlink price updates
-200–2000 ms before the block is sealed** — with on-the-spot confirmation from `logs_bloom`, no receipt round-trip.
+Chainlink price updates on Base as they land: the new answer decoded from the transmit transaction and confirmed
+from the block's `logs_bloom`, with no receipt round-trip.
 
 Rust library, command-line tool and Python module (`pip install flashblocks`).
 
 ![flashblocks-tail decoding live Chainlink updates on Base](docs/demo.gif)
 
-## Why
+## Base after Denim (0.2)
 
-Base builds every 2-second block out of ten 200 ms slices and streams them publicly
-(`wss://mainnet.flashblocks.base.org/ws`). Anything that reacts to an oracle price — liquidation bots, OEV solvers,
-hedgers, dashboards — can act on a Chainlink update the moment its transaction lands in a slice, instead of waiting for
-the block or polling an RPC. The stream is raw, though: brotli-compressed JSON with RLP-encoded signed transactions,
-roughly 3.5 GB a day. This crate turns it into typed events:
+On Nov 5, 2026 Base activated Denim: a complete canonical block every 200 ms, and Flashblocks were retired
+(`wss://mainnet.flashblocks.base.org/ws` still accepts connections but streams nothing). Since 0.2 this crate reads
+200 ms blocks from any WebSocket RPC with subscriptions:
 
-```text
-{"block":53548000,"index":3,"aggregator":"0x71e021bc…","answer":"272994250969","confirmed":true,"tx":"0x…","latency_ms":0.59}
-```
+* **Header first.** `eth_subscribe("newHeads")` delivers every block header with its `logsBloom`. A block is read only
+  if the bloom holds the `AnswerUpdated` topic and one of the watched aggregators; blooms have no false negatives, so
+  nothing is missed and almost no block is read for nothing (in a live test: one block read in four minutes, the one
+  with the update).
+* **No dropped blocks.** Public WebSocket endpoints drop headers under load (on the day after Denim one public stream
+  delivered 59% of the blocks). The listener remembers the last block it saw and reads every skipped one by number
+  over the same connection, including the blocks of a reconnect.
+* **Same events.** The block's transactions are decoded exactly as Flashblocks slices were: `forward(aggregator,
+  transmit(report))` through a forwarder or a direct `transmit(report)`, the new answer is the median of the report's
+  observations (as the OCR2 aggregator computes it), and `AnswerUpdated(aggregator, answer)` in the block's bloom
+  confirms it. `index` is now the transaction index in the block.
 
-* **Finds transmits.** Chainlink updates on Base arrive as `forward(aggregator, transmit(report))` through a forwarder,
-  or as a direct `transmit(report)`. Both are decoded from the raw transaction bytes; the new answer is the median of
-  the report's observations, exactly as the OCR2 aggregator computes it (verified against the aggregator on-chain).
-* **Confirms without a receipt.** A slice carries the block's cumulative `logs_bloom`. If the transmit succeeded,
-  `AnswerUpdated(aggregator, answer)` is in the bloom; a reverted transmit leaves nothing. Blooms have no false
-  negatives, so `confirmed == false` is final. On a live stream 11 of 11 confirmations matched the receipts.
-* **Fast.** Slices without a watched address are rejected by a byte search before any JSON parsing. On the recorded
-  sample (135 real slices, Apple M-series): 0.55 ms for a slice with an update, 0.11 ms without. A Python
-  reference implementation (web3.py + eth_abi) takes 3.0 ms and 0.9 ms on the same input.
+A Flashblocks stream can still be decoded (`Listener`, `parse`, `--url`) for chains or nodes that serve one.
 
 ## Command line
 
@@ -36,31 +34,35 @@ cargo install flashblocks
 flashblocks-tail --feed 0x71e021bc2e8a709b72ac7b6036e5b2bf30f263d0   # cbETH/USD aggregator on Base
 ```
 
-Base documents the public `mainnet.flashblocks.base.org` endpoint as intended for infrastructure use; for anything
-serious run your own [flashblocks-websocket-proxy](https://github.com/base/flashblocks-websocket-proxy) or use a node
-provider that exposes the stream, and point `--url` at it. The message format is the same.
+```text
+{"block":54360494,"index":7,"aggregator":"0x92f88cca9d3c846be7e8163e4c32bb07772cd245","answer":"7587667500230","confirmed":true,"tx":"0xf9f9…","latency_ms":165.67}
+```
 
-`--feed` is the **aggregator** address (what `EACAggregatorProxy.aggregator()` returns), not the proxy. Pass it as many
-times as you like; `--url` overrides the stream endpoint. One JSON line per update goes to stdout, connection
-statistics go to stderr when the stream is quiet.
+`--feed` is the **aggregator** address (what `EACAggregatorProxy.aggregator()` returns), not the proxy; pass it as many
+times as you like. `--rpc wss://…` sets the WebSocket RPC (default: the public `wss://base-rpc.publicnode.com`); for
+anything serious use your own node or a provider from Base's Builder Stack. `latency_ms` is the time from the header's
+arrival to the printed line, which includes reading the block over the RPC (~150 ms on a public endpoint). One JSON line
+per update goes to stdout; when the chain is quiet, connection statistics (blocks read, skipped blocks filled) go to
+stderr.
 
 ## Rust
 
 ```rust
-use flashblocks::{Listener, Watch};
+use flashblocks::{BlockListener, Watch};
 
-let watch = Watch { aggregators: vec![cb_eth_usd], ..Watch::default() };
-let listener = Listener::start("wss://mainnet.flashblocks.base.org/ws".into(), watch);
+let watch = Watch { aggregators: vec![cb_eth_usd] };
+let listener = BlockListener::start("wss://base-rpc.publicnode.com".into(), watch);
 for update in listener.receiver.lock().unwrap().iter() {
     let f = update.update;
-    println!("block {} slice {} feed 0x{} confirmed {:?} after {:.2} ms",
+    println!("block {} tx {} feed 0x{} confirmed {:?} after {:.2} ms",
              f.block, f.index, hex::encode(f.aggregator), f.confirmed,
              update.received.elapsed().as_secs_f64() * 1000.0);
 }
 ```
 
-Decoding only, without the listener: `flashblocks::parse(&message, compressed, &watch)` takes one WebSocket frame
-(binary = brotli) and returns `Vec<FeedUpdate>`. `Listener.watch` can be swapped at runtime.
+Without the listener: `flashblocks::blocks::may_have_update(&header, &watch)` checks a header's bloom and
+`flashblocks::blocks::block_updates(&block, &watch)` decodes a full block (`eth_getBlockByNumber(n, true)`), both on
+`serde_json::Value`. `BlockListener.watch` can be swapped at runtime.
 
 ## Python
 
@@ -71,29 +73,23 @@ pip install flashblocks
 ```python
 import flashblocks
 
-listener = flashblocks.Listener("wss://mainnet.flashblocks.base.org/ws",
-                                aggregators=["0x71e021bc2e8a709b72ac7b6036e5b2bf30f263d0"])
+listener = flashblocks.BlockListener("wss://base-rpc.publicnode.com",
+                                     aggregators=["0x71e021bc2e8a709b72ac7b6036e5b2bf30f263d0"])
 while True:
-    got = listener.next(1000)            # (aggregator, answer, block, index, age_ms, tx_hash, confirmed) or None
+    got = listener.next(1000)  # (aggregator, answer, block, tx_index, age_ms, tx_hash, confirmed) or None
     if got:
         print(got)
 ```
 
-`flashblocks.parse(message, compressed, aggregators)` decodes one frame. Decoding and
-waiting run with the GIL released.
-
-## How Base orders transactions, and why slices matter
-
-Transactions in a slice are ordered by arrival (priority fee breaks ties only among those arriving together). A bot
-that reacts to the sealed block is always a full block late; a bot that reacts to the slice can land in the next
-200 ms slice of the same block. The `received` timestamp in `Update` is the moment the frame arrived, so you can
-measure your own end-to-end reaction time.
+`flashblocks.block_updates(block_json, aggregators)` decodes a block you fetched yourself. Decoding and waiting run
+with the GIL released. `flashblocks.Listener` and `flashblocks.parse` still read a Flashblocks stream.
 
 ## Testing
 
-`cargo test --release` replays `tests/fixtures/base_sample.ndjson` — 135 messages recorded from the live stream in
-October 2026 — and checks every decoded update against results from an independent Python decoder. Selectors are
-derived from the function signatures in a test, so a typo cannot silently break decoding.
+`cargo test --release` decodes a recorded Base mainnet block with a cbETH/USD update (block 53935243, confirmed from its
+bloom), checks the header prefilter, and replays `tests/fixtures/base_sample.ndjson` (135 Flashblocks messages from
+October 2026) against an independent Python decoder. Selectors are derived from the function signatures in a test, so
+a typo cannot silently break decoding.
 
 ## License
 
