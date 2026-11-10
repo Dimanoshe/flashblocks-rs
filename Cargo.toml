@@ -1,11 +1,11 @@
 [package]
 name = "flashblocks"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
-description = "Decode Base Flashblocks in real time: Chainlink price updates straight from the 200 ms pre-confirmation stream, with logs_bloom confirmation"
+description = "Chainlink price updates on Base from 200 ms blocks (and Flashblocks streams), decoded from the transmit and confirmed from logs_bloom"
 license = "MIT"
 repository = "https://github.com/Dimanoshe/flashblocks-rs"
-keywords = ["base", "flashblocks", "chainlink", "optimism", "mev"]
+keywords = ["base", "chainlink", "oracle", "flashblocks", "optimism"]
 categories = ["cryptography::cryptocurrencies", "parsing"]
 readme = "README.md"
 
